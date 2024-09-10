@@ -1,45 +1,83 @@
 
-const MAIN_CACHE = 'main';
+const MAIN_CACHE = 'main_20240910';
 
 self.addEventListener("install", async (event) => {
     event.waitUntil((async () => {
-        const cacheKeys = await caches.keys()
-        await Promise.all(cacheKeys.map(name => caches.delete(name)))
-
         const cache = await caches.open(MAIN_CACHE)
         await cache.addAll([
             '.',
+            './checkbox.css',
+            './favicon.ico',
+            './index.html',
+            './manifest.webmanifest',
             './guided_audio/exhale_en.mp3',
             './guided_audio/exhale_ja.mp3',
             './guided_audio/finish_en.mp3',
             './guided_audio/finish_ja.mp3',
             './guided_audio/inhale_en.mp3',
-            './guided_audio/inhale_ja.mp3'
+            './guided_audio/inhale_ja.mp3',
+            './icons/icon_64.png',
+            './icons/icon_180.png',
+            './icons/icon_256.png',
+            './icons/icon_512.png'
         ])
     })())
 });
-  
-const cacheFirst = (event) => {
 
-    if (event.request.method.toLowerCase() != 'get') return
-    if (event.request.headers.get('Range') != null) return
-    
-    const requestUrl = new URL(event.request.url)
-    
-    if (requestUrl.protocol != 'http:' && requestUrl.protocol != 'https:') return;
-
-    event.respondWith((async ()=>{
-        const cache = await caches.open(MAIN_CACHE)
-
-        const responsePromise = fetch(event.request).then((response) => {
-            if (response.ok) cache.put(event.request, response.clone())
-            return response
-        })
-
-        let cacheResponse = await caches.match(event.request)
-
-        return cacheResponse || await responsePromise
-    })())
+const deleteCache = async (key) => {
+    await caches.delete(key);
 };
 
-self.addEventListener('fetch', cacheFirst);
+const deleteOldCaches = async () => {
+    const cacheKeepList = [MAIN_CACHE];
+    const keyList = await caches.keys();
+    const cachesToDelete = keyList.filter((key) => !cacheKeepList.includes(key));
+    await Promise.all(cachesToDelete.map(deleteCache));
+};
+
+self.addEventListener("activate", (event) => {
+    event.waitUntil(deleteOldCaches());
+});
+
+self.addEventListener('fetch', function(event) {
+    if (event.request.headers.get('range')) {
+        var pos =
+        Number(/^bytes\=(\d+)\-$/g.exec(event.request.headers.get('range'))[1]);
+        event.respondWith(
+            caches.open(MAIN_CACHE)
+            .then(function(cache) {
+                return cache.match(event.request.url);
+            }).then(function(res) {
+                if (!res) {
+                    return fetch(event.request)
+                    .then(res => {
+                        return res.arrayBuffer();
+                    });
+                }
+                return res.arrayBuffer();
+            }).then(function(ab) {
+                return new Response(
+                ab.slice(pos),
+                {
+                    status: 206,
+                    statusText: 'Partial Content',
+                    headers: [
+                    ['Content-Range', 'bytes ' + pos + '-' +
+                        (ab.byteLength - 1) + '/' + ab.byteLength]]
+                });
+        }));
+    } else {
+        event.respondWith(
+            caches.match(event.request).then(function(response) {
+                if (response) {
+                    return response;
+                }
+                return fetch(event.request).then(function(response) {
+                    return response;
+                }).catch(function(error) {
+                    throw error;
+                });
+            })
+        );
+    }
+});
